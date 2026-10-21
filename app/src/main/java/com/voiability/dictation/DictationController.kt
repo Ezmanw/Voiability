@@ -80,8 +80,9 @@ class DictationController(
             fail("Microphone permission needed. Open Voiability to allow it.")
             return
         }
-        if (s.sttModelId.isEmpty() || engines.status.value.error != null && !engines.status.value.speechReady) {
-            fail(engines.status.value.error ?: "Pick a speech model in Voiability first.")
+        engines.status.value.error?.let { if (!engines.status.value.speechReady) { fail(it); return } }
+        if (!engines.speechAvailable) {
+            fail(if (s.sttModelId.isEmpty()) "Pick a speech model in Voiability first." else "Your speech model is still downloading.")
             return
         }
         resetJob?.cancel()

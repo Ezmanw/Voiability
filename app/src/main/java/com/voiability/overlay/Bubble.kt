@@ -123,7 +123,15 @@ class Bubble(
     }
 
     fun show() {
-        if (isShown) return
+        if (isShown) {
+            // Changed our mind halfway through hiding: grow back instead.
+            if (removeWhenGone && !dismissing) {
+                removeWhenGone = false
+                scaleTarget = 1f
+                kick()
+            }
+            return
+        }
         measureScreen()
         dockPosition()
         x = tx; y = ty

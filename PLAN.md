@@ -1,5 +1,7 @@
 # Voiability — Implementation Plan
 
+> **Status:** Implemented. M0 to M4 are done; see README.md. Model sizes and timings below are the original estimates.
+
 A Wispr Flow–style voice dictation app for Android: speak anywhere, get clean, well-formatted text typed into any app. **Everything runs on-device.** No accounts, no servers, no network permission.
 
 ## 1. Product goals

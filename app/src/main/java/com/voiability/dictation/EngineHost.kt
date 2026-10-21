@@ -109,6 +109,9 @@ class EngineHost(
 
     val vadFile get() = models.vadFile
 
+    /** The chosen speech model is on disk (it may still be loading into memory). */
+    val speechAvailable: Boolean get() = models.fileFor(settings.current.sttModelId) != null
+
     fun abortSpeech() = whisper?.abort()
     fun abortPolish() = llama?.abort()
 

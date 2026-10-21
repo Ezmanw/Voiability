@@ -6,6 +6,8 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Rect
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
@@ -37,6 +39,7 @@ class VoiAccessibilityService : AccessibilityService() {
     /** Hidden by dragging onto the X; comes back the next time a keyboard opens. */
     private var snoozed = false
     private var keyboardWasVisible = false
+    private val handler = Handler(Looper.getMainLooper())
     private val updateRunnable = Runnable { updateVisibility() }
 
     override fun onServiceConnected() {
@@ -103,14 +106,15 @@ class VoiAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         if (!::bubble.isInitialized) return
-        // Coalesce bursts of events into one check per frame or so.
-        bubble.view.removeCallbacks(updateRunnable)
-        bubble.view.postDelayed(updateRunnable, 60)
+        // Coalesce bursts of events into one check. (Not view.post: the bubble may be detached.)
+        handler.removeCallbacks(updateRunnable)
+        handler.postDelayed(updateRunnable, 60)
     }
 
     override fun onInterrupt() = Unit
 
     override fun onDestroy() {
+        handler.removeCallbacksAndMessages(null)
         scope.cancel()
         if (::bubble.isInitialized) bubble.hide()
         if (::pill.isInitialized) pill.hide()

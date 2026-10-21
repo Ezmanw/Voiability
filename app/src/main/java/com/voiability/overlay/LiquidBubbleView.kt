@@ -8,6 +8,7 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.RuntimeShader
 import android.os.Build
+import android.util.Log
 import android.view.View
 import androidx.annotation.RequiresApi
 import androidx.core.content.ContextCompat
@@ -56,7 +57,10 @@ open class LiquidBubbleView(context: Context) : View(context) {
     var time = 0f
 
     private val density = resources.displayMetrics.density
-    private val shader: Any? = if (Build.VERSION.SDK_INT >= 33) RuntimeShader(SHADER) else null
+    /** Null below Android 13, or if the shader failed to compile/bind on this GPU: we fall back to circles. */
+    private var shader: Any? = if (Build.VERSION.SDK_INT >= 33) {
+        runCatching { RuntimeShader(SHADER) }.onFailure { Log.e("LiquidBubble", "shader failed", it) }.getOrNull()
+    } else null
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val iconPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val bar = RectF()
@@ -113,11 +117,11 @@ open class LiquidBubbleView(context: Context) : View(context) {
         val by = ballY - originY
         val (colA, colB) = bodyColors()
 
-        if (Build.VERSION.SDK_INT >= 33) {
-            drawLiquid(canvas, bx, by, r, colA, colB)
-        } else {
-            drawFallback(canvas, bx, by, r, colA)
-        }
+        val liquidOk = Build.VERSION.SDK_INT >= 33 && shader != null &&
+            runCatching { drawLiquid(canvas, bx, by, r, colA, colB) }
+                .onFailure { Log.e("LiquidBubble", "shader draw failed", it); shader = null; paint.shader = null }
+                .isSuccess
+        if (!liquidOk) drawFallback(canvas, bx, by, r, colA)
         drawIcon(canvas, bx, by, r)
     }
 
@@ -244,8 +248,8 @@ open class LiquidBubbleView(context: Context) : View(context) {
                 if (sat2.z > 0.0) d = smin(d, circle(p, sat2.xy, sat2.z), ks);
                 // Big blobs hidden past each screen edge; they rise to meet the bubble.
                 float re = rad * 1.9;
-                if (edges.z > 0.001) d = smin(d, circle(p, float2(edges.x - re + edges.z * rad * 0.42, ball.y), re), goo * edges.z);
-                if (edges.w > 0.001) d = smin(d, circle(p, float2(edges.y + re - edges.w * rad * 0.42, ball.y), re), goo * edges.w);
+                if (edges.z > 0.001) d = smin(d, circle(p, float2(edges.x - re + edges.z * rad * 0.5, ball.y), re), goo * (0.55 + 0.45 * edges.z));
+                if (edges.w > 0.001) d = smin(d, circle(p, float2(edges.y + re - edges.w * rad * 0.5, ball.y), re), goo * (0.55 + 0.45 * edges.w));
                 return d;
             }
 
@@ -267,17 +271,15 @@ open class LiquidBubbleView(context: Context) : View(context) {
 
                 float a = clamp(0.5 - d, 0.0, 1.0);
                 float g = clamp((p.y - ball.y + rad) / (2.0 * rad), 0.0, 1.0);
-                half4 bodyCol = mix(colA, colB, g);
+                float3 bodyCol = mix(float3(colA.rgb), float3(colB.rgb), g);
                 // Subtle top light so it reads as a droplet, not a sticker.
                 float hl = 1.0 - smoothstep(0.0, rad * 0.9, length(p - (ball + float2(-0.25, -0.45) * rad)));
-                bodyCol.rgb += half3(0.10 * hl);
+                bodyCol += float3(0.10 * hl);
                 float wT = clamp(0.5 + (db - dt) / (k + 1.0), 0.0, 1.0);
-                half4 col = mix(bodyCol, colT, wT);
-                col.a = 1.0;
+                float3 col = mix(bodyCol, float3(colT.rgb), wT);
 
-                half4 outc = half4(col.rgb * a, a);
-                outc += half4(0.0, 0.0, 0.0, sh * (1.0 - a));
-                return outc * alpha;
+                float4 outc = float4(col * a, a) + float4(0.0, 0.0, 0.0, sh * (1.0 - a));
+                return half4(outc * alpha);
             }
         """.trimIndent()
     }
