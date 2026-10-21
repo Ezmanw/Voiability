@@ -53,6 +53,16 @@ object ModelCatalog {
             speed = 3, quality = 4,
         ),
         ModelInfo(
+            "whisper-medium-en", ModelKind.SPEECH, "Whisper Medium", "Very accurate English, heavier",
+            WHISPER + "ggml-medium.en-q5_0.bin", "ggml-medium.en-q5_0.bin", 539_225_533, 1400,
+            englishOnly = true, speed = 5, quality = 5,
+        ),
+        ModelInfo(
+            "whisper-medium", ModelKind.SPEECH, "Whisper Medium · Multilingual", "99 languages, heavier",
+            WHISPER + "ggml-medium-q5_0.bin", "ggml-medium-q5_0.bin", 539_212_467, 1400,
+            speed = 5, quality = 4,
+        ),
+        ModelInfo(
             "whisper-turbo", ModelKind.SPEECH, "Whisper Large v3 Turbo", "Best accuracy, any language",
             WHISPER + "ggml-large-v3-turbo-q5_0.bin", "ggml-large-v3-turbo-q5_0.bin", 574_041_195, 1500,
             speed = 4, quality = 5,
