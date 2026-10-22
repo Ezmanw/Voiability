@@ -115,6 +115,12 @@ class VoiAccessibilityService : AccessibilityService() {
 
     override fun onInterrupt() = Unit
 
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // Rotation or a fold changes the screen size the overlay windows are laid out against.
+        if (::bubble.isInitialized) bubble.onScreenChanged()
+    }
+
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
         scope.cancel()

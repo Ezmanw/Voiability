@@ -115,7 +115,6 @@ open class LiquidBubbleView(context: Context) : View(context) {
     private var lastSample = 0f
 
     init {
-        setLayerType(LAYER_TYPE_HARDWARE, null)
         refreshColors()
     }
 
@@ -238,7 +237,17 @@ open class LiquidBubbleView(context: Context) : View(context) {
         s.setFloatUniform("alpha", bodyAlpha)
         s.setFloatUniform("density", density)
         paint.shader = s
-        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), paint)
+        // Shade only around the bubble (plus the edges and target it's merging with): the
+        // overlay window is full-screen and most of it is empty.
+        val pad = r * MAX_EXTENT + 14f * density
+        rect.set(bx - pad, by - pad, bx + pad, by + pad)
+        if (lp > 0.001f) rect.left = 0f
+        if (rp > 0.001f) rect.right = width.toFloat()
+        if (targetAmount > 0.001f) {
+            val tp = targetRadius + r * 1.5f + 14f * density
+            rect.union(targetX - originX - tp, targetY - originY - tp, targetX - originX + tp, targetY - originY + tp)
+        }
+        canvas.drawRect(rect, paint)
     }
 
     private fun drawTarget(canvas: Canvas) {

@@ -11,6 +11,7 @@ import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.VelocityTracker
+import android.view.View
 import android.view.ViewConfiguration
 import android.view.WindowManager
 import com.voiability.data.BubbleLook
@@ -24,9 +25,12 @@ import kotlin.math.sqrt
 /**
  * The floating dictation bubble: window management, touch, and spring physics.
  *
- * At rest it lives in a small window docked against a screen edge, melted into it. While being
- * dragged (and while it springs back) the window grows to full screen so the blob can travel
- * anywhere and merge with both edges and the dismiss target.
+ * Two windows:
+ *  - a full-screen, touch-through window that draws everything. It never moves or resizes
+ *    while animating: Android applies a window's new position and its new contents in
+ *    separate steps, so moving a drawing window makes its old frame flash in the wrong place.
+ *  - a small invisible window over the bubble that only catches touches. It draws nothing,
+ *    so moving it can't glitch. A gesture keeps going to it even when the finger leaves it.
  */
 @SuppressLint("ClickableViewAccessibility")
 class Bubble(
@@ -46,12 +50,17 @@ class Bubble(
     private val wm = context.getSystemService(WindowManager::class.java)
     private val density = context.resources.displayMetrics.density
     val view = LiquidBubbleView(context)
-    private val params = WindowManager.LayoutParams(
+    private val touchView = View(context)
+    private val params = overlayParams("Voiability bubble", touchable = false)
+    private val touchParams = overlayParams("Voiability bubble touch", touchable = true)
+
+    private fun overlayParams(name: String, touchable: Boolean) = WindowManager.LayoutParams(
         0, 0, windowType,
         WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
             WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-            WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
+            WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED or
+            (if (touchable) 0 else WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE),
         PixelFormat.TRANSLUCENT,
     ).apply {
         gravity = Gravity.TOP or Gravity.START
@@ -59,12 +68,11 @@ class Bubble(
             layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
             setFitInsetsTypes(0)
         }
-        title = "Voiability bubble"
+        title = name
     }
 
     var isShown = false
         private set
-    private var free = false
 
     private var settings = BubbleSettings()
     private var r = 29f * density
@@ -98,7 +106,7 @@ class Bubble(
 
     init {
         view.trackWindowPosition = true
-        view.setOnTouchListener { _, e -> onTouch(e) }
+        touchView.setOnTouchListener { _, e -> onTouch(e) }
     }
 
     // ---- public API ---------------------------------------------------------------------
@@ -114,17 +122,14 @@ class Bubble(
         view.spinner = newSettings.spinner
         if (view.colorRole != newSettings.color) view.colorRole = newSettings.color
         refreshAlpha()
-        if (isShown && !free && (sizeChanged || !dragging)) dock(animate = false)
+        if (isShown && !dragging && !springing && !dismissing && (sizeChanged || !removeWhenGone)) dock(animate = false)
     }
 
     fun setKeyboardTop(top: Int?) {
         if (keyboardTop == top) return
         keyboardTop = top
         if (isShown && !dragging && !dismissing) {
-            measureScreen()
             dockPosition()
-            // Travel in a full-screen, touch-through window, then shrink back when settled.
-            layoutFree(touchable = false)
             startSpring()
         }
     }
@@ -146,9 +151,10 @@ class Bubble(
         scaleTarget = 1f
         removeWhenGone = false
         dismissing = false
-        free = false
-        layoutDocked()
+        layoutWindow()
+        placeTouch()
         runCatching { wm.addView(view, params) }.onFailure { return }
+        runCatching { wm.addView(touchView, touchParams) }
         isShown = true
         kick()
     }
@@ -177,6 +183,13 @@ class Bubble(
     fun setLevel(level: Float) {
         view.level = level
         if (view.mode == BubbleMode.LISTENING) kick()
+    }
+
+    /** Call after rotation or a display change. */
+    fun onScreenChanged() {
+        if (!isShown) return
+        layoutWindow()
+        dock(animate = false)
     }
 
     /** Where the bubble sits, for positioning the transcript pill. */
@@ -213,44 +226,34 @@ class Bubble(
     }
 
     private fun dock(animate: Boolean) {
-        measureScreen()
         dockPosition()
         if (!animate) {
             x = tx; y = ty; vx = 0f; vy = 0f
-        }
-        layoutDocked()
+            placeTouch()
+        } else startSpring()
         update()
         kick()
     }
 
-    private fun layoutDocked() {
-        free = false
-        val ext = r * LiquidBubbleView.MAX_EXTENT
-        val h = (ext * 2 + 10f * density).toInt()
-        // Snapped: the window hugs the edge so the goo can reach it. Floating: centred on the ball.
-        val w = if (settings.snapToEdge) (r + gap + ext + 6f * density).toInt() else h
-        params.width = w
-        params.height = h
-        params.x = when {
-            !settings.snapToEdge -> (tx - w / 2f).toInt()
-            settings.rightSide -> (screenW - w).toInt()
-            else -> 0
-        }
-        params.y = (ty - h / 2f).toInt()
-        params.flags = params.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
-        view.originX = params.x.toFloat()
-        view.originY = params.y.toFloat()
+    /** Sizes the drawing window to the whole screen. Only needed when the screen itself changes. */
+    private fun layoutWindow() {
+        measureScreen()
+        params.x = 0; params.y = 0
+        params.width = screenW.toInt(); params.height = screenH.toInt()
+        view.originX = 0f; view.originY = 0f
         if (isShown) runCatching { wm.updateViewLayout(view, params) }
     }
 
-    private fun layoutFree(touchable: Boolean) {
-        free = true
-        params.x = 0; params.y = 0
-        params.width = screenW.toInt(); params.height = screenH.toInt()
-        params.flags = if (touchable) params.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
-        else params.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
-        view.originX = 0f; view.originY = 0f
-        if (isShown) runCatching { wm.updateViewLayout(view, params) }
+    /** Moves the invisible touch target over the bubble's resting spot. */
+    private fun placeTouch() {
+        val size = (r * 2.7f).toInt()
+        touchParams.width = size
+        touchParams.height = size
+        touchParams.x = (x - size / 2f).toInt()
+        touchParams.y = (y - size / 2f).toInt()
+        touchParams.flags = if (dismissing) touchParams.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+        else touchParams.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+        if (isShown) runCatching { wm.updateViewLayout(touchView, touchParams) }
     }
 
     private fun refreshAlpha() {
@@ -284,7 +287,7 @@ class Bubble(
                 dragging = false; holding = false
                 tracker = VelocityTracker.obtain().also { track(it, e) }
                 scaleTarget = 0.9f
-                view.postDelayed(holdRunnable, HOLD_MS)
+                touchView.postDelayed(holdRunnable, HOLD_MS)
                 haptic(HapticFeedbackConstants.VIRTUAL_KEY)
                 kick()
             }
@@ -292,12 +295,10 @@ class Bubble(
                 tracker?.let { track(it, e) }
                 if (!dragging && !holding && hypot(e.rawX - downX, e.rawY - downY) > touchSlop) {
                     dragging = true
-                    view.removeCallbacks(holdRunnable)
+                    touchView.removeCallbacks(holdRunnable)
                     scaleTarget = 1.08f
                     springing = false
                     refreshAlpha()
-                    measureScreen()
-                    layoutFree(touchable = true)
                 }
                 if (dragging) {
                     var nx = e.rawX + grabDx
@@ -321,7 +322,7 @@ class Bubble(
                 }
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                view.removeCallbacks(holdRunnable)
+                touchView.removeCallbacks(holdRunnable)
                 tracker?.let { track(it, e) }
                 tracker?.computeCurrentVelocity(1000)
                 val maxV = MAX_FLING_DP * density
@@ -343,10 +344,7 @@ class Bubble(
         return true
     }
 
-    /**
-     * Feeds the tracker screen coordinates. The window jumps between its docked and full-screen
-     * layouts mid-gesture, so window-relative coordinates would read as a violent fling.
-     */
+    /** Feeds the tracker screen coordinates, so velocity never depends on where the touch window sits. */
     private fun track(tracker: VelocityTracker, e: MotionEvent) {
         val copy = MotionEvent.obtain(e)
         copy.setLocation(e.rawX, e.rawY)
@@ -358,10 +356,10 @@ class Bubble(
 
     private fun release(fvx: Float, fvy: Float) {
         targetGoal = 0f
-        layoutFree(touchable = false)
         if (hot) {
             hot = false
             dismissing = true
+            placeTouch()
             val (cx, cy) = targetCenter()
             tx = cx; ty = cy
             vx = 0f; vy = 0f
@@ -369,7 +367,7 @@ class Bubble(
             removeWhenGone = true
             haptic(if (Build.VERSION.SDK_INT >= 30) HapticFeedbackConstants.CONFIRM else HapticFeedbackConstants.LONG_PRESS)
             targetGoal = 1f
-            view.postDelayed({ targetGoal = 0f; kick() }, 220)
+            touchView.postDelayed({ targetGoal = 0f; kick() }, 220)
             startSpring()
             callbacks.onDismissed()
             return
@@ -399,7 +397,7 @@ class Bubble(
     }
 
     private fun haptic(constant: Int) {
-        if (callbacks.haptics) view.performHapticFeedback(constant)
+        if (callbacks.haptics) touchView.performHapticFeedback(constant)
     }
 
     // ---- animation loop -----------------------------------------------------------------
@@ -429,7 +427,7 @@ class Bubble(
             if (abs(x - tx) < 0.5f && abs(y - ty) < 0.5f && abs(vx) < 20f && abs(vy) < 20f) {
                 x = tx; y = ty; vx = 0f; vy = 0f
                 springing = false
-                if (free && !removeWhenGone) layoutDocked()
+                if (!removeWhenGone) placeTouch()
             } else moving = true
         }
 
@@ -447,11 +445,11 @@ class Bubble(
 
         if (removeWhenGone && scale <= 0.02f && scaleTarget == 0f && targetAmount < 0.01f) {
             runCatching { wm.removeView(view) }
+            runCatching { wm.removeView(touchView) }
             isShown = false
             removeWhenGone = false
             dismissing = false
             springing = false
-            free = false
             return
         }
         if (moving || dragging || view.isAnimating) kick()
