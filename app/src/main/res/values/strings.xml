@@ -5,6 +5,7 @@
     <string name="bubble_service_label">Voiability bubble</string>
     <string name="bubble_service_summary">Floating mic that types what you say into any app</string>
     <string name="bubble_service_description">Voiability shows a floating mic bubble while you type. Accessibility is used only to see when a keyboard is open and to insert your dictated text into the focused text field. Voiability does not read, store or send the contents of your screen. All speech processing happens on this device.</string>
+    <string name="tile_label">Voice bubble</string>
     <string name="downloads_channel">Model downloads</string>
     <string name="downloading_models">Downloading speech models</string>
 </resources>

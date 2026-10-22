@@ -89,7 +89,7 @@ class VoiAccessibilityService : AccessibilityService() {
                 val caption = when (state) {
                     is DictationState.Listening -> state.partial.ifBlank { null }
                     is DictationState.Transcribing -> state.partial.ifBlank { null }
-                    is DictationState.Polishing -> state.text.ifBlank { null }?.let { "${state.style.emoji} $it" }
+                    is DictationState.Polishing -> state.text.ifBlank { null }?.let { t -> graph.settings.current.let { if (it.showStyleEmoji && state.style.emoji.isNotBlank()) "${state.style.emoji} $t" else t } }
                     is DictationState.Error -> state.message
                     else -> null
                 }

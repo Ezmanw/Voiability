@@ -33,6 +33,7 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Restore
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -98,20 +99,47 @@ fun StylesScreen(padding: PaddingValues) {
                     )
                 }
             }
+            item {
+                Group {
+                    SwitchRow("Show emoji", "On style chips and labels", null, settings.showStyleEmoji) { v ->
+                        scope.launch { graph.settings.update { it.copy(showStyleEmoji = v) } }
+                    }
+                }
+            }
             items(settings.allStyles, key = { it.id }) { style ->
                 StyleCard(
                     style = style,
+                    showEmoji = settings.showStyleEmoji,
                     isDefault = settings.defaultStyleId == style.id,
                     onClick = { scope.launch { graph.settings.update { it.copy(defaultStyleId = style.id) } } },
                     onEdit = { editing = style },
                 )
             }
+            val builtInIds = Styles.builtIn.map { it.id }.toSet()
+            if (settings.hiddenStyles.isNotEmpty() || settings.customStyles.any { it.id in builtInIds }) {
+                item {
+                    TextButton(onClick = {
+                        scope.launch {
+                            graph.settings.update { s -> s.copy(hiddenStyles = emptySet(), customStyles = s.customStyles.filterNot { it.id in builtInIds }) }
+                        }
+                    }) { Icon(Icons.Rounded.Restore, null); Spacer(Modifier.width(8.dp)); Text("Restore built-in styles") }
+                }
+            }
             item { SectionTitle("Per-app styles") }
             item {
                 Group {
+                    SwitchRow(
+                        "Per-app styles",
+                        if (settings.perAppStyles) "Each app below uses its own style" else "Off · every app uses your default style",
+                        Icons.Rounded.Apps, settings.perAppStyles,
+                    ) { v -> scope.launch { graph.settings.update { it.copy(perAppStyles = v) } } }
+                }
+            }
+            if (settings.perAppStyles) item {
+                Group {
                     val pm = LocalContext.current.packageManager
                     settings.appStyles.entries.sortedBy { appLabel(pm, it.key) }.forEach { (pkg, styleId) ->
-                        AppStyleRow(pkg, settings.style(styleId), settings.allStyles,
+                        AppStyleRow(pkg, settings.style(styleId), settings.allStyles, settings::label,
                             onPick = { s -> scope.launch { graph.settings.update { it.copy(appStyles = it.appStyles + (pkg to s.id)) } } },
                             onRemove = { scope.launch { graph.settings.update { it.copy(appStyles = it.appStyles - pkg) } } },
                         )
@@ -135,23 +163,22 @@ fun StylesScreen(padding: PaddingValues) {
             initial = style,
             onDismiss = { editing = null },
             onSave = { saved ->
+                // Edited built-ins are stored as overrides under the same id.
                 scope.launch {
-                    graph.settings.update { s ->
-                        if (saved.builtIn) s
-                        else s.copy(customStyles = s.customStyles.filterNot { it.id == saved.id } + saved)
-                    }
+                    graph.settings.update { s -> s.copy(customStyles = s.customStyles.filterNot { it.id == saved.id } + saved) }
                 }
                 editing = null
             },
-            onDelete = if (!style.builtIn && settings.customStyles.any { it.id == style.id }) {
+            onDelete = if (settings.allStyles.size > 1 && settings.allStyles.any { it.id == style.id }) {
                 {
                     scope.launch {
                         graph.settings.update { s ->
-                            s.copy(
+                            val next = s.copy(
                                 customStyles = s.customStyles.filterNot { it.id == style.id },
-                                defaultStyleId = if (s.defaultStyleId == style.id) Styles.CLEAN else s.defaultStyleId,
+                                hiddenStyles = if (style.builtIn) s.hiddenStyles + style.id else s.hiddenStyles,
                                 appStyles = s.appStyles.filterValues { it != style.id },
                             )
+                            if (next.defaultStyleId == style.id) next.copy(defaultStyleId = next.allStyles.first().id) else next
                         }
                     }
                     editing = null
@@ -169,14 +196,22 @@ fun StylesScreen(padding: PaddingValues) {
 }
 
 @Composable
-private fun StyleCard(style: Style, isDefault: Boolean, onClick: () -> Unit, onEdit: () -> Unit) {
+private fun StyleCard(style: Style, showEmoji: Boolean, isDefault: Boolean, onClick: () -> Unit, onEdit: () -> Unit) {
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(if (isDefault) 32.dp else 24.dp),
         color = if (isDefault) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer,
     ) {
         Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(style.emoji, style = MaterialTheme.typography.headlineMedium)
+            if (showEmoji && style.emoji.isNotBlank()) {
+                Text(style.emoji, style = MaterialTheme.typography.headlineMedium)
+            } else {
+                Surface(shape = androidx.compose.foundation.shape.CircleShape, color = MaterialTheme.colorScheme.secondaryContainer, modifier = Modifier.size(40.dp)) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(style.name.take(1).uppercase(), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                    }
+                }
+            }
             Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -213,7 +248,6 @@ private fun StyleEditorSheet(initial: Style, onDismiss: () -> Unit, onSave: (Sty
     var sample by remember { mutableStateOf("um so yeah i think we should uh grab dinner on friday no wait saturday and maybe invite Sam too") }
     var result by remember { mutableStateOf<String?>(null) }
     var running by remember { mutableStateOf(false) }
-    val readOnly = initial.builtIn
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet) {
         Column(
@@ -221,40 +255,36 @@ private fun StyleEditorSheet(initial: Style, onDismiss: () -> Unit, onSave: (Sty
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(if (readOnly) "${style.emoji} ${style.name}" else "Edit style", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
+                Text(if (initial.builtIn) "Edit ${initial.name}" else "Edit style", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
                 if (onDelete != null) IconButton(onClick = onDelete) { Icon(Icons.Rounded.Delete, "Delete") }
             }
-            if (!readOnly) {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedTextField(
-                        value = style.emoji, onValueChange = { style = style.copy(emoji = it.take(4)) },
-                        label = { Text("Emoji") }, singleLine = true, modifier = Modifier.width(90.dp),
-                    )
-                    OutlinedTextField(
-                        value = style.name, onValueChange = { style = style.copy(name = it.take(24)) },
-                        label = { Text("Name") }, singleLine = true, modifier = Modifier.weight(1f),
-                    )
-                }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(
-                    value = style.instruction,
-                    onValueChange = { style = style.copy(instruction = it.take(600)) },
-                    label = { Text("How should it sound?") },
-                    placeholder = { Text("e.g. make it really casual, no capitals, a bit sarcastic, use british spelling") },
-                    minLines = 3,
-                    modifier = Modifier.fillMaxWidth(),
+                    value = style.emoji, onValueChange = { style = style.copy(emoji = it.take(4)) },
+                    label = { Text("Emoji") }, placeholder = { Text("none") }, singleLine = true, modifier = Modifier.width(90.dp),
                 )
-                Text(
-                    "This goes straight into the on-device AI's instructions. Switches below are always enforced, even if the AI forgets.",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                OutlinedTextField(
+                    value = style.name, onValueChange = { style = style.copy(name = it.take(24)) },
+                    label = { Text("Name") }, singleLine = true, modifier = Modifier.weight(1f),
                 )
-            } else {
-                Text(style.instruction, style = MaterialTheme.typography.bodyLarge)
             }
+            OutlinedTextField(
+                value = style.instruction,
+                onValueChange = { style = style.copy(instruction = it.take(600)) },
+                label = { Text("How should it sound?") },
+                placeholder = { Text("e.g. make it really casual, no capitals, a bit sarcastic, use british spelling") },
+                minLines = 3,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Text(
+                "This goes straight into the on-device AI's instructions. Switches below are always enforced, even if the AI forgets.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
                 Column {
-                    SwitchRow("all lowercase", "no capitals, ever", checked = style.lowercase) { if (!readOnly) style = style.copy(lowercase = it) }
-                    SwitchRow("No period at the end", "reads more like a text", checked = style.dropFinalPeriod) { if (!readOnly) style = style.copy(dropFinalPeriod = it) }
-                    SwitchRow("AI rewrite", "Off = just remove fillers, fast", checked = style.useLlm) { if (!readOnly) style = style.copy(useLlm = it) }
+                    SwitchRow("all lowercase", "no capitals, ever", checked = style.lowercase) { style = style.copy(lowercase = it) }
+                    SwitchRow("No period at the end", "reads more like a text", checked = style.dropFinalPeriod) { style = style.copy(dropFinalPeriod = it) }
+                    SwitchRow("AI rewrite", "Off = just remove fillers, fast", checked = style.useLlm) { style = style.copy(useLlm = it) }
                 }
             }
 
@@ -281,20 +311,18 @@ private fun StyleEditorSheet(initial: Style, onDismiss: () -> Unit, onSave: (Sty
                     Text(it, Modifier.fillMaxWidth().padding(16.dp), color = MaterialTheme.colorScheme.onTertiaryContainer)
                 }
             }
-            if (!readOnly) {
-                Button(
-                    onClick = { onSave(style) },
-                    enabled = style.name.isNotBlank(),
-                    modifier = Modifier.fillMaxWidth().height(52.dp),
-                ) { Text("Save style") }
-            }
+            Button(
+                onClick = { onSave(style) },
+                enabled = style.name.isNotBlank(),
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+            ) { Text("Save style") }
             Spacer(Modifier.height(12.dp))
         }
     }
 }
 
 @Composable
-private fun AppStyleRow(pkg: String, style: Style, styles: List<Style>, onPick: (Style) -> Unit, onRemove: () -> Unit) {
+private fun AppStyleRow(pkg: String, style: Style, styles: List<Style>, label: (Style) -> String, onPick: (Style) -> Unit, onRemove: () -> Unit) {
     val pm = LocalContext.current.packageManager
     var menu by remember { mutableStateOf(false) }
     val icon = remember(pkg) { runCatching { pm.getApplicationIcon(pkg) }.getOrNull() }
@@ -303,10 +331,10 @@ private fun AppStyleRow(pkg: String, style: Style, styles: List<Style>, onPick: 
         Spacer(Modifier.width(14.dp))
         Text(appLabel(pm, pkg), style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
         Box {
-            TextButton(onClick = { menu = true }) { Text("${style.emoji} ${style.name}") }
+            TextButton(onClick = { menu = true }) { Text(label(style)) }
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                 styles.forEach { s ->
-                    DropdownMenuItem(text = { Text("${s.emoji} ${s.name}") }, onClick = { menu = false; onPick(s) })
+                    DropdownMenuItem(text = { Text(label(s)) }, onClick = { menu = false; onPick(s) })
                 }
             }
         }

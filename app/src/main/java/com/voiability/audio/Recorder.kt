@@ -67,6 +67,11 @@ class Recorder {
         Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
         val frame = FloatArray(SAMPLE_RATE / 50) // 20 ms
         var smooth = 0f
+        // Auto-gain: track the room's noise floor and the speaker's recent loudness so the
+        // level uses the full 0..1 range whether you whisper or the mic has no AGC.
+        var floorDb = -60f
+        var loudDb = -30f
+        var frames = 0
         try {
             while (running) {
                 val n = record.read(frame, 0, frame.size, AudioRecord.READ_BLOCKING)
@@ -75,12 +80,15 @@ class Recorder {
                 for (i in 0 until n) sum += frame[i] * frame[i]
                 val rms = sqrt(sum / n)
                 peak = max(peak, rms)
-                // Map roughly -55 dBFS..-15 dBFS onto 0..1.
                 val db = 20 * log10(rms + 1e-7f)
-                val target = ((db + 55f) / 40f).coerceIn(0f, 1f)
-                smooth += (target - smooth) * if (target > smooth) 0.5f else 0.15f
+                frames++
+                floorDb = if (db < floorDb || frames < 8) floorDb + (db - floorDb) * 0.5f else floorDb + 0.04f
+                loudDb = if (db > loudDb) db else loudDb - 0.06f
+                val range = max(loudDb - floorDb, 15f)
+                val target = ((db - floorDb - 4f) / range).coerceIn(0f, 1f)
+                smooth += (target - smooth) * if (target > smooth) 0.6f else 0.18f
                 _level.value = smooth
-                if (target > 0.32f) {
+                if (target > 0.3f) {
                     silentForMs = 0
                     heardSpeech = true
                 } else {

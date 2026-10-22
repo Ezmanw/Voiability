@@ -19,13 +19,25 @@ android {
         ndk { abiFilters += listOf("arm64-v8a") }
     }
 
+    signingConfigs {
+        // CI release key, supplied through environment variables (see .github/workflows/release.yml).
+        System.getenv("VOI_KEYSTORE")?.takeIf { file(it).exists() }?.let { path ->
+            create("release") {
+                storeFile = file(path)
+                storePassword = System.getenv("VOI_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("VOI_KEY_ALIAS")
+                keyPassword = System.getenv("VOI_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // Sideload-friendly: signed with the debug key unless you configure your own.
-            signingConfig = signingConfigs.getByName("debug")
+            // Sideload-friendly: signed with the debug key unless a release key is configured.
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
     }
 

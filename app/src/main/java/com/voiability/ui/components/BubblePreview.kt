@@ -9,13 +9,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import com.voiability.overlay.BubbleMode
 import com.voiability.overlay.LiquidBubbleView
+import com.voiability.data.BubbleLook
+import com.voiability.data.BubbleSettings
+import kotlin.math.abs
 import kotlin.math.sin
 
 /** The overlay renderer, positioned inside its own bounds instead of on screen. */
 private class PreviewBubbleView(context: Context) : LiquidBubbleView(context) {
     /** -1 = melted into the left edge, 0 = floating in the middle, 1 = melted into the right edge. */
     var side = 1
-    private val gap = 3f * resources.displayMetrics.density
+    /** Flat bubbles float a little away from the edge, liquid ones touch it. */
+    var flatGap = false
+    private val gap get() = (if (flatGap) 8f else 3f) * resources.displayMetrics.density
 
     fun place() {
         val w = width.toFloat()
@@ -40,30 +45,35 @@ private class PreviewBubbleView(context: Context) : LiquidBubbleView(context) {
 }
 
 /**
- * The real bubble renderer embedded in the app, gently "talking" so the liquid effect shows.
+ * The real bubble renderer embedded in the app. It loops through resting, listening (with a
+ * fake voice), working and done so every animation setting can be seen.
  */
 @Composable
 fun BubblePreview(
-    sizeDp: Float,
-    opacity: Float,
-    liquid: Boolean,
+    bubble: BubbleSettings,
     modifier: Modifier = Modifier,
     side: Int = 1,
     alive: Boolean = true,
 ) {
     val holder = remember { arrayOfNulls<PreviewBubbleView>(1) }
-    LaunchedEffect(alive, opacity) {
+    LaunchedEffect(alive, bubble.idleOpacity) {
         val start = System.nanoTime()
         while (true) {
             withFrameNanos { now ->
                 val t = (now - start) / 1e9f
                 holder[0]?.let { v ->
                     v.time = t
-                    // Talk for a bit, rest for a bit.
-                    val talking = alive && (t % 6f) < 3.2f
-                    v.mode = if (talking) BubbleMode.LISTENING else BubbleMode.IDLE
-                    v.level = if (talking) (0.5f + 0.4f * sin(t * 7f) * sin(t * 2.3f)).coerceIn(0f, 1f) else 0f
-                    v.bodyAlpha = if (talking) 1f else opacity
+                    val phase = t % 8f
+                    v.mode = when {
+                        !alive || phase < 1.5f -> BubbleMode.IDLE
+                        phase < 4.8f -> BubbleMode.LISTENING
+                        phase < 7.2f -> BubbleMode.PROCESSING
+                        else -> BubbleMode.DONE
+                    }
+                    // Syllable-ish loudness: fast bursts inside slower phrases.
+                    val speech = (0.5f + 0.5f * sin(t * 2.1f)) * (0.55f + 0.45f * abs(sin(t * 9.3f)))
+                    v.level = if (v.mode == BubbleMode.LISTENING) speech.coerceIn(0f, 1f) else 0f
+                    v.bodyAlpha = if (v.mode == BubbleMode.IDLE) bubble.idleOpacity else 1f
                     v.invalidate()
                 }
             }
@@ -73,10 +83,14 @@ fun BubblePreview(
         factory = { ctx -> PreviewBubbleView(ctx).also { holder[0] = it } },
         modifier = modifier,
         update = { v ->
-            v.radius = sizeDp / 2f * v.resources.displayMetrics.density
-            v.liquid = liquid
+            v.radius = bubble.sizeDp / 2f * v.resources.displayMetrics.density
+            v.liquid = bubble.liquid
+            v.look = bubble.look
+            v.listenAnim = bubble.listenAnim
+            v.spinner = bubble.spinner
+            if (v.colorRole != bubble.color) v.colorRole = bubble.color
+            v.flatGap = bubble.look != BubbleLook.LIQUID
             v.side = side
-            v.bodyAlpha = opacity
             v.place()
         },
     )

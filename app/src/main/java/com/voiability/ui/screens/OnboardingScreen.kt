@@ -57,6 +57,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.voiability.VoiApp
+import com.voiability.data.BubbleLook
+import com.voiability.data.BubbleSettings
+import com.voiability.data.ListenAnim
 import com.voiability.models.ModelCatalog
 import com.voiability.models.ModelInfo
 import com.voiability.models.ModelState
@@ -143,7 +146,10 @@ private fun Welcome(onNext: () -> Unit) {
         body = "Speak naturally in any app and get clean, polished text. Everything — speech recognition and AI — runs on your phone.",
         hero = {
             Box(Modifier.fillMaxWidth().height(220.dp)) {
-                BubblePreview(sizeDp = 110f, opacity = 1f, liquid = true, modifier = Modifier.fillMaxSize(), side = 0)
+                BubblePreview(
+                    BubbleSettings(sizeDp = 110f, idleOpacity = 1f, look = BubbleLook.LIQUID, listenAnim = ListenAnim.BLOB),
+                    Modifier.fillMaxSize(), side = 0,
+                )
             }
         },
         primary = "Get started",

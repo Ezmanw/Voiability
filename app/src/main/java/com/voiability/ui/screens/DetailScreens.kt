@@ -1,6 +1,20 @@
 package com.voiability.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import com.voiability.data.BubbleColor
+import com.voiability.data.BubbleLook
+import com.voiability.data.ListenAnim
+import com.voiability.data.Spinner
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -79,6 +93,7 @@ private fun DetailScaffold(title: String, onBack: () -> Unit, actions: @Composab
     )
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun BubbleScreen(onBack: () -> Unit) {
     val graph = VoiApp.graph
@@ -99,9 +114,9 @@ fun BubbleScreen(onBack: () -> Unit) {
             item {
                 Surface(shape = RoundedCornerShape(32.dp), color = MaterialTheme.colorScheme.surfaceContainerHighest) {
                     Box(Modifier.fillMaxWidth().height(200.dp)) {
-                        BubblePreview(size, opacity, b.liquid, Modifier.fillMaxSize(), side = if (b.rightSide) 1 else -1)
+                        BubblePreview(b.copy(sizeDp = size, idleOpacity = opacity), Modifier.fillMaxSize(), side = if (b.rightSide) 1 else -1)
                         Text(
-                            "Drag the real bubble onto the ✕ to hide it until next time",
+                            "Preview cycles through resting, listening and working",
                             style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.align(Alignment.BottomStart).padding(16.dp).fillMaxWidth(0.6f),
                         )
@@ -112,7 +127,67 @@ fun BubbleScreen(onBack: () -> Unit) {
                 Group(Modifier.padding(top = 12.dp)) {
                     SwitchRow("Show bubble", null, null, b.enabled) { v -> save { it.copy(enabled = v) } }
                     SwitchRow("Only while typing", "Appears when a keyboard opens", Icons.Rounded.Keyboard, b.onlyWhileTyping) { v -> save { it.copy(onlyWhileTyping = v) } }
-                    SwitchRow("Liquid edge", "Melts into the side of the screen", Icons.Rounded.Water, b.liquid) { v -> save { it.copy(liquid = v) } }
+                }
+            }
+            item { SectionTitle("Look") }
+            item {
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                    BubbleLook.entries.forEachIndexed { i, look ->
+                        SegmentedButton(
+                            selected = b.look == look,
+                            onClick = { save { it.copy(look = look) } },
+                            shape = SegmentedButtonDefaults.itemShape(i, BubbleLook.entries.size),
+                        ) { Text(if (look == BubbleLook.FLAT) "Flat" else "Liquid") }
+                    }
+                }
+            }
+            if (b.look == BubbleLook.LIQUID) item {
+                Group(Modifier.padding(top = 8.dp)) {
+                    SwitchRow("Melt into the edge", "Stretches and snaps as you drag it", Icons.Rounded.Water, b.liquid) { v -> save { it.copy(liquid = v) } }
+                }
+            }
+            item { SectionTitle("Colour") }
+            item {
+                val scheme = MaterialTheme.colorScheme
+                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                    BubbleColor.entries.forEach { role ->
+                        val (bg, fg) = when (role) {
+                            BubbleColor.PRIMARY -> scheme.primary to scheme.onPrimary
+                            BubbleColor.SECONDARY -> scheme.secondary to scheme.onSecondary
+                            BubbleColor.TERTIARY -> scheme.tertiary to scheme.onTertiary
+                            BubbleColor.NEUTRAL -> scheme.surfaceVariant to scheme.onSurfaceVariant
+                            BubbleColor.INVERSE -> scheme.inverseSurface to scheme.inverseOnSurface
+                        }
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Surface(
+                                onClick = { save { it.copy(color = role) } },
+                                shape = CircleShape, color = bg,
+                                border = if (b.color == role) BorderStroke(3.dp, scheme.onSurface) else null,
+                                modifier = Modifier.size(52.dp),
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    if (b.color == role) Icon(Icons.Rounded.Check, null, tint = fg)
+                                }
+                            }
+                            Text(role.label, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 4.dp))
+                        }
+                    }
+                }
+            }
+            item { SectionTitle("While listening") }
+            item {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(horizontal = 4.dp)) {
+                    ListenAnim.entries.forEach { a ->
+                        FilterChip(selected = b.listenAnim == a, onClick = { save { it.copy(listenAnim = a) } }, label = { Text(a.label) })
+                    }
+                }
+            }
+            item { SectionTitle("While working") }
+            item {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(horizontal = 4.dp)) {
+                    Spinner.entries.forEach { sp ->
+                        FilterChip(selected = b.spinner == sp, onClick = { save { it.copy(spinner = sp) } }, label = { Text(sp.label) })
+                    }
                 }
             }
             item { SectionTitle("Size · ${size.toInt()} dp") }
@@ -128,14 +203,14 @@ fun BubbleScreen(onBack: () -> Unit) {
                     }
                 }
             }
-            item { SectionTitle("Resting opacity · ${(opacity * 100).toInt()}%") }
+            item { SectionTitle("Opacity when resting · ${(opacity * 100).toInt()}%") }
             item {
                 Group {
                     Row(Modifier.padding(horizontal = 18.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Rounded.Opacity, null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.width(14.dp))
                         Slider(
-                            value = opacity, onValueChange = { opacity = it }, valueRange = 0.3f..1f,
+                            value = opacity, onValueChange = { opacity = it }, valueRange = 0.2f..1f,
                             onValueChangeFinished = { save { it.copy(idleOpacity = opacity) } },
                         )
                     }
@@ -143,7 +218,7 @@ fun BubbleScreen(onBack: () -> Unit) {
             }
             item {
                 Text(
-                    "Tap the bubble to start and stop. Hold it to talk, let go to type. Drag it anywhere — it snaps back to the edge.",
+                    "Tap the bubble to start and stop. Hold it to talk, let go to type. Drag it anywhere and it snaps back to the nearest edge. Drag it onto the ✕ to hide it until the next time a keyboard opens.",
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(12.dp),
                 )
@@ -246,7 +321,7 @@ fun HistoryScreen(onBack: () -> Unit) {
                             Text(
                                 listOfNotNull(
                                     DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(item.time)),
-                                    item.app, "${style.emoji} ${style.name}",
+                                    item.app, settings.label(style),
                                     "%.1fs speech + %.1fs AI".format(item.sttMs / 1000.0, item.llmMs / 1000.0),
                                 ).joinToString(" · "),
                                 style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,

@@ -13,6 +13,7 @@ import android.view.MotionEvent
 import android.view.VelocityTracker
 import android.view.ViewConfiguration
 import android.view.WindowManager
+import com.voiability.data.BubbleLook
 import com.voiability.data.BubbleSettings
 import kotlin.math.abs
 import kotlin.math.hypot
@@ -92,9 +93,11 @@ class Bubble(
     private val startTime = SystemClock.uptimeMillis()
 
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
-    private val gap get() = 3f * density
+    /** Liquid melts into the edge; Flat floats a little away from it like a FAB. */
+    private val gap get() = if (settings.look == BubbleLook.LIQUID) 3f * density else 8f * density
 
     init {
+        view.trackWindowPosition = true
         view.setOnTouchListener { _, e -> onTouch(e) }
     }
 
@@ -106,6 +109,10 @@ class Bubble(
         r = newSettings.sizeDp / 2f * density
         view.radius = r
         view.liquid = newSettings.liquid
+        view.look = newSettings.look
+        view.listenAnim = newSettings.listenAnim
+        view.spinner = newSettings.spinner
+        if (view.colorRole != newSettings.color) view.colorRole = newSettings.color
         refreshAlpha()
         if (isShown && !free && (sizeChanged || !dragging)) dock(animate = false)
     }
@@ -266,14 +273,14 @@ class Bubble(
                 downX = e.rawX; downY = e.rawY
                 grabDx = x - e.rawX; grabDy = y - e.rawY
                 dragging = false; holding = false
-                tracker = VelocityTracker.obtain().also { it.addMovement(e) }
+                tracker = VelocityTracker.obtain().also { track(it, e) }
                 scaleTarget = 0.9f
                 view.postDelayed(holdRunnable, HOLD_MS)
                 haptic(HapticFeedbackConstants.VIRTUAL_KEY)
                 kick()
             }
             MotionEvent.ACTION_MOVE -> {
-                tracker?.addMovement(e)
+                tracker?.let { track(it, e) }
                 if (!dragging && !holding && hypot(e.rawX - downX, e.rawY - downY) > touchSlop) {
                     dragging = true
                     view.removeCallbacks(holdRunnable)
@@ -306,10 +313,11 @@ class Bubble(
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 view.removeCallbacks(holdRunnable)
-                tracker?.addMovement(e)
+                tracker?.let { track(it, e) }
                 tracker?.computeCurrentVelocity(1000)
-                val fvx = tracker?.xVelocity ?: 0f
-                val fvy = tracker?.yVelocity ?: 0f
+                val maxV = MAX_FLING_DP * density
+                val fvx = (tracker?.xVelocity ?: 0f).coerceIn(-maxV, maxV)
+                val fvy = (tracker?.yVelocity ?: 0f).coerceIn(-maxV, maxV)
                 tracker?.recycle(); tracker = null
                 scaleTarget = 1f
                 when {
@@ -324,6 +332,17 @@ class Bubble(
             }
         }
         return true
+    }
+
+    /**
+     * Feeds the tracker screen coordinates. The window jumps between its docked and full-screen
+     * layouts mid-gesture, so window-relative coordinates would read as a violent fling.
+     */
+    private fun track(tracker: VelocityTracker, e: MotionEvent) {
+        val copy = MotionEvent.obtain(e)
+        copy.setLocation(e.rawX, e.rawY)
+        tracker.addMovement(copy)
+        copy.recycle()
     }
 
     private fun targetCenter(): Pair<Float, Float> = screenW / 2f to screenH - 120f * density
@@ -452,6 +471,7 @@ class Bubble(
         const val HOLD_MS = 320L
         const val MAGNET_DP = 90f
         const val FLING_DP = 900f
+        const val MAX_FLING_DP = 3500f
         const val SPRING_K = 260f
         const val SPRING_ZETA = 0.62f
     }

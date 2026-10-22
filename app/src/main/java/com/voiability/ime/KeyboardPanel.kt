@@ -102,7 +102,7 @@ fun KeyboardPanel(
                     FilterChip(
                         selected = pickedStyle?.id == style.id,
                         onClick = { onPickStyle(style) },
-                        label = { Text("${style.emoji} ${style.name}") },
+                        label = { Text(settings.label(style)) },
                     )
                 }
             }
@@ -111,7 +111,7 @@ fun KeyboardPanel(
             val caption = when (val s = state) {
                 is DictationState.Listening -> s.partial.ifBlank { if (level > 0.1f) "Listening…" else "Speak now" }
                 is DictationState.Transcribing -> s.partial.ifBlank { "Transcribing…" }
-                is DictationState.Polishing -> s.text.ifBlank { "${s.style.emoji} Polishing…" }
+                is DictationState.Polishing -> s.text.ifBlank { "Polishing · ${settings.label(s.style)}" }
                 is DictationState.Done -> s.text
                 is DictationState.Error -> s.message
                 DictationState.Idle -> "Tap to talk · hold for push-to-talk"

@@ -182,13 +182,13 @@ fun HomeScreen(padding: PaddingValues, onOpen: (Page) -> Unit, onTab: (Tab) -> U
                     ) {
                         settings.allStyles.forEach { style ->
                             val selected = (tryStyle ?: settings.style(settings.defaultStyleId)).id == style.id
-                            FilterChip(selected = selected, onClick = { tryStyle = style }, label = { Text("${style.emoji} ${style.name}") })
+                            FilterChip(selected = selected, onClick = { tryStyle = style }, label = { Text(settings.label(style)) })
                         }
                     }
                     val caption = when (val s = state) {
                         is DictationState.Listening -> s.partial
                         is DictationState.Transcribing -> s.partial.ifBlank { "Transcribing…" }
-                        is DictationState.Polishing -> s.text.ifBlank { "${s.style.emoji} Polishing…" }
+                        is DictationState.Polishing -> s.text.ifBlank { "Polishing · ${settings.label(s.style)}" }
                         is DictationState.Error -> s.message
                         else -> ""
                     }
@@ -269,7 +269,7 @@ fun HomeScreen(padding: PaddingValues, onOpen: (Page) -> Unit, onTab: (Tab) -> U
                                 Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) {
                                     Text(item.text, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyLarge)
                                     Text(
-                                        listOfNotNull(item.app, settings.style(item.styleId).let { "${it.emoji} ${it.name}" }).joinToString(" · "),
+                                        listOfNotNull(item.app, settings.label(settings.style(item.styleId))).joinToString(" · "),
                                         style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }

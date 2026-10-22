@@ -22,12 +22,28 @@ data class DictionaryEntry(
     val soundsLike: List<String> = emptyList(),
 )
 
+/** Flat is a plain Material disc; Liquid is the metaball renderer that melts into the screen edge. */
+enum class BubbleLook { FLAT, LIQUID }
+
+/** Which tonal palette of the wallpaper (Material You) colours the bubble. */
+enum class BubbleColor(val label: String) { PRIMARY("Primary"), SECONDARY("Secondary"), TERTIARY("Tertiary"), NEUTRAL("Neutral"), INVERSE("Inverse") }
+
+/** What the bubble shows while it hears you. */
+enum class ListenAnim(val label: String) { WAVE("Waveform"), PULSE("Pulse ring"), BLOB("Blobs") }
+
+/** What the bubble shows while it's working on your text. */
+enum class Spinner(val label: String) { ARC("Arc"), MORPH("Morphing shape"), DOTS("Orbiting dots"), RIPPLE("Ripple") }
+
 @Serializable
 data class BubbleSettings(
     val enabled: Boolean = true,
-    val sizeDp: Float = 58f,
+    val sizeDp: Float = 56f,
     val idleOpacity: Float = 0.92f,
-    /** Gooey metaball merge with the screen edge. */
+    val look: BubbleLook = BubbleLook.FLAT,
+    val color: BubbleColor = BubbleColor.PRIMARY,
+    val listenAnim: ListenAnim = ListenAnim.WAVE,
+    val spinner: Spinner = Spinner.MORPH,
+    /** Gooey metaball merge with the screen edge (Liquid look only). */
     val liquid: Boolean = true,
     val onlyWhileTyping: Boolean = true,
     /** Docked side: false = left, true = right. */
@@ -58,13 +74,32 @@ data class Settings(
     val autoStopSeconds: Float = 0f,
     val keepHistory: Boolean = true,
     val historyDays: Int = 7,
+    /** Off = always use the default style, whatever app you're in. */
+    val perAppStyles: Boolean = true,
+    val showStyleEmoji: Boolean = true,
+    /** Built-in styles the user deleted. */
+    val hiddenStyles: Set<String> = emptySet(),
 ) {
-    val allStyles: List<Style> get() = Styles.builtIn + customStyles
+    /**
+     * Built-ins (minus deleted ones, with any user edits applied) followed by custom styles.
+     * An edited built-in is stored in [customStyles] under the built-in's id.
+     */
+    val allStyles: List<Style>
+        get() {
+            val overrides = customStyles.associateBy { it.id }
+            val builtIns = Styles.builtIn.filter { it.id !in hiddenStyles }.map { b -> overrides[b.id]?.copy(builtIn = true) ?: b }
+            val builtInIds = Styles.builtIn.map { it.id }.toSet()
+            return (builtIns + customStyles.filter { it.id !in builtInIds }).ifEmpty { listOf(Styles.builtIn.first()) }
+        }
 
-    fun style(id: String?): Style = allStyles.firstOrNull { it.id == id } ?: Styles.builtIn.first()
+    fun style(id: String?): Style = allStyles.firstOrNull { it.id == id } ?: allStyles.first()
 
     fun styleFor(packageName: String?): Style =
-        style(packageName?.let { appStyles[it] } ?: defaultStyleId)
+        style(packageName?.takeIf { perAppStyles }?.let { appStyles[it] } ?: defaultStyleId)
+
+    /** "✨ Clean", or just "Clean" when emoji are turned off or the style has none. */
+    fun label(style: Style): String =
+        if (showStyleEmoji && style.emoji.isNotBlank()) "${style.emoji} ${style.name}" else style.name
 }
 
 private val Context.dataStore by preferencesDataStore("voiability")
