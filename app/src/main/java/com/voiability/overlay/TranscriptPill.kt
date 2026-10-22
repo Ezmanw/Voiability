@@ -51,11 +51,16 @@ class TranscriptPill(context: Context, windowType: Int) {
     private var visible = false
     private val ease = PathInterpolator(0.2f, 0f, 0f, 1f)
 
-    fun show(message: String, anchorX: Float, anchorY: Float, radius: Float, rightSide: Boolean, screenWidth: Int) {
+    /** Shows the caption beside the bubble, on whichever side has more room. */
+    fun show(message: String, anchorX: Float, anchorY: Float, radius: Float, screenWidth: Int) {
+        val rightSide = anchorX > screenWidth / 2f
+        val gap = 10 * density
+        // Distance from the screen edge the caption grows away from.
+        val offset = if (rightSide) screenWidth - (anchorX - radius) + gap else anchorX + radius + gap
         text.text = message
-        text.maxWidth = (screenWidth - radius * 2 - 56 * density).toInt()
+        text.maxWidth = (screenWidth - offset - 16 * density).toInt().coerceAtLeast((120 * density).toInt())
         params.gravity = Gravity.TOP or if (rightSide) Gravity.END else Gravity.START
-        params.x = (radius * 2 + 14 * density).toInt()
+        params.x = offset.toInt()
         params.y = (anchorY - radius * 0.9f).toInt()
         if (!added) {
             runCatching { wm.addView(text, params) }.onSuccess { added = true }

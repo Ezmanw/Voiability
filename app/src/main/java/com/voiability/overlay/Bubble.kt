@@ -39,7 +39,7 @@ class Bubble(
         fun onHoldStart()
         fun onHoldEnd()
         fun onDismissed()
-        fun onMoved(rightSide: Boolean, yFraction: Float)
+        fun onMoved(rightSide: Boolean, xFraction: Float, yFraction: Float)
         val haptics: Boolean
     }
 
@@ -181,7 +181,7 @@ class Bubble(
 
     /** Where the bubble sits, for positioning the transcript pill. */
     val anchor: Triple<Float, Float, Float> get() = Triple(x, y, r)
-    val dockedRight: Boolean get() = settings.rightSide
+    val screenWidth: Float get() = screenW
 
     // ---- layout -------------------------------------------------------------------------
 
@@ -204,7 +204,11 @@ class Bubble(
     }
 
     private fun dockPosition() {
-        tx = if (settings.rightSide) screenW - r - gap else r + gap
+        tx = when {
+            !settings.snapToEdge -> (settings.xFraction * screenW).coerceIn(r + gap, screenW - r - gap)
+            settings.rightSide -> screenW - r - gap
+            else -> r + gap
+        }
         ty = (settings.yFraction * screenH).coerceIn(minY(), max(minY(), maxY()))
     }
 
@@ -222,11 +226,16 @@ class Bubble(
     private fun layoutDocked() {
         free = false
         val ext = r * LiquidBubbleView.MAX_EXTENT
-        val w = (r + gap + ext + 6f * density).toInt()
         val h = (ext * 2 + 10f * density).toInt()
+        // Snapped: the window hugs the edge so the goo can reach it. Floating: centred on the ball.
+        val w = if (settings.snapToEdge) (r + gap + ext + 6f * density).toInt() else h
         params.width = w
         params.height = h
-        params.x = if (settings.rightSide) (screenW - w).toInt() else 0
+        params.x = when {
+            !settings.snapToEdge -> (tx - w / 2f).toInt()
+            settings.rightSide -> (screenW - w).toInt()
+            else -> 0
+        }
         params.y = (ty - h / 2f).toInt()
         params.flags = params.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
         view.originX = params.x.toFloat()
@@ -370,13 +379,16 @@ class Bubble(
             fvx < -FLING_DP * density -> false
             else -> x > screenW / 2f
         }
+        // A little inertia, so a flick carries it a bit further before it settles.
+        val restX = x + fvx * 0.08f
         settings = settings.copy(
-            rightSide = flingSide,
+            rightSide = if (settings.snapToEdge) flingSide else restX > screenW / 2f,
+            xFraction = (restX / screenW).coerceIn(0f, 1f),
             yFraction = ((y + fvy * 0.08f) / screenH).coerceIn(0.05f, 0.95f),
         )
         dockPosition()
-        settings = settings.copy(yFraction = ty / screenH)
-        callbacks.onMoved(settings.rightSide, settings.yFraction)
+        settings = settings.copy(xFraction = tx / screenW, yFraction = ty / screenH)
+        callbacks.onMoved(settings.rightSide, settings.xFraction, settings.yFraction)
         vx = fvx; vy = fvy
         startSpring()
     }

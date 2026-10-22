@@ -43,8 +43,12 @@ data class BubbleSettings(
     val color: BubbleColor = BubbleColor.PRIMARY,
     val listenAnim: ListenAnim = ListenAnim.WAVE,
     val spinner: Spinner = Spinner.MORPH,
-    /** Gooey metaball merge with the screen edge (Liquid look only). */
+    /** Metaball effects: melting into the edge, voice blobs and the dismiss target merge. Works with both looks. */
     val liquid: Boolean = true,
+    /** Off = the bubble floats wherever you drop it instead of snapping to the nearest edge. */
+    val snapToEdge: Boolean = true,
+    /** Horizontal position as a fraction of the screen width, used when not snapping. */
+    val xFraction: Float = 0.85f,
     val onlyWhileTyping: Boolean = true,
     /** Docked side: false = left, true = right. */
     val rightSide: Boolean = true,

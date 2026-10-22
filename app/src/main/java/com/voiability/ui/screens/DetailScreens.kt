@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.VerticalAlignCenter
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -114,7 +115,10 @@ fun BubbleScreen(onBack: () -> Unit) {
             item {
                 Surface(shape = RoundedCornerShape(32.dp), color = MaterialTheme.colorScheme.surfaceContainerHighest) {
                     Box(Modifier.fillMaxWidth().height(200.dp)) {
-                        BubblePreview(b.copy(sizeDp = size, idleOpacity = opacity), Modifier.fillMaxSize(), side = if (b.rightSide) 1 else -1)
+                        BubblePreview(
+                            b.copy(sizeDp = size, idleOpacity = opacity), Modifier.fillMaxSize(),
+                            side = if (!b.snapToEdge) 0 else if (b.rightSide) 1 else -1,
+                        )
                         Text(
                             "Preview cycles through resting, listening and working",
                             style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -127,6 +131,11 @@ fun BubbleScreen(onBack: () -> Unit) {
                 Group(Modifier.padding(top = 12.dp)) {
                     SwitchRow("Show bubble", null, null, b.enabled) { v -> save { it.copy(enabled = v) } }
                     SwitchRow("Only while typing", "Appears when a keyboard opens", Icons.Rounded.Keyboard, b.onlyWhileTyping) { v -> save { it.copy(onlyWhileTyping = v) } }
+                    SwitchRow(
+                        "Snap to edge",
+                        if (b.snapToEdge) "Springs back to the nearest side" else "Floats wherever you drop it",
+                        Icons.Rounded.VerticalAlignCenter, b.snapToEdge,
+                    ) { v -> save { it.copy(snapToEdge = v) } }
                 }
             }
             item { SectionTitle("Look") }
@@ -141,9 +150,13 @@ fun BubbleScreen(onBack: () -> Unit) {
                     }
                 }
             }
-            if (b.look == BubbleLook.LIQUID) item {
+            item {
                 Group(Modifier.padding(top = 8.dp)) {
-                    SwitchRow("Melt into the edge", "Stretches and snaps as you drag it", Icons.Rounded.Water, b.liquid) { v -> save { it.copy(liquid = v) } }
+                    SwitchRow(
+                        "Metaballs",
+                        if (b.look == BubbleLook.FLAT) "Solid colour that melts into edges, blobs and the ✕" else "Melts into the edge, stretches and snaps as you drag",
+                        Icons.Rounded.Water, b.liquid,
+                    ) { v -> save { it.copy(liquid = v) } }
                 }
             }
             item { SectionTitle("Colour") }

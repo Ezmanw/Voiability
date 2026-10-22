@@ -62,8 +62,10 @@ class VoiAccessibilityService : AccessibilityService() {
                 graph.dictation.cancel()
                 pill.hide()
             }
-            override fun onMoved(rightSide: Boolean, yFraction: Float) {
-                scope.launch { graph.settings.update { it.copy(bubble = it.bubble.copy(rightSide = rightSide, yFraction = yFraction)) } }
+            override fun onMoved(rightSide: Boolean, xFraction: Float, yFraction: Float) {
+                scope.launch {
+                    graph.settings.update { it.copy(bubble = it.bubble.copy(rightSide = rightSide, xFraction = xFraction, yFraction = yFraction)) }
+                }
             }
             override val haptics: Boolean get() = graph.settings.current.haptics
         })
@@ -95,7 +97,7 @@ class VoiAccessibilityService : AccessibilityService() {
                 }
                 if (caption != null && bubble.isShown) {
                     val (x, y, r) = bubble.anchor
-                    pill.show(caption, x, y, r, bubble.dockedRight, resources.displayMetrics.widthPixels)
+                    pill.show(caption, x, y, r, bubble.screenWidth.toInt())
                 } else pill.hide()
                 if (!state.isBusy) updateVisibility()
             }

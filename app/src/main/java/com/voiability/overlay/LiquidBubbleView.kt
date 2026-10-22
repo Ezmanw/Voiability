@@ -56,6 +56,7 @@ open class LiquidBubbleView(context: Context) : View(context) {
     /** 0..1: how strongly each screen edge reaches for the ball (Liquid look). */
     var leftPull = 0f
     var rightPull = 0f
+    /** Metaball rendering (gooey edges and merging); with the Flat look it stays solid-coloured. */
     var liquid = true
     /**
      * Read the real on-screen position at draw time instead of trusting [originX]/[originY].
@@ -178,13 +179,17 @@ open class LiquidBubbleView(context: Context) : View(context) {
             canvas.drawCircle(bx, by, r * (1.18f + 0.55f * level), fill)
         }
 
-        val liquidOk = look == BubbleLook.LIQUID && Build.VERSION.SDK_INT >= 33 && shader != null &&
+        val liquidOk = usesShader &&
             runCatching { drawLiquid(canvas, bx, by, r, body) }
                 .onFailure { Log.e(TAG, "shader draw failed", it); shader = null; paint.shader = null }
                 .isSuccess
         if (!liquidOk) drawFlat(canvas, bx, by, r, body)
         drawContent(canvas, bx, by, r, on)
     }
+
+    /** The metaball shader draws the body for the Liquid look, and for Flat when metaballs are on. */
+    private val usesShader: Boolean
+        get() = Build.VERSION.SDK_INT >= 33 && shader != null && (look == BubbleLook.LIQUID || liquid)
 
     /** Voice-reactive satellite blobs as (x, y, r) relative to the ball. */
     private fun satellite(i: Int, r: Float): FloatArray {
@@ -225,8 +230,10 @@ open class LiquidBubbleView(context: Context) : View(context) {
             s.setFloatUniform("sat$i", bx + sat[0], by + sat[1], sat[2], 0f)
         }
         s.setFloatUniform("goo", r * if (liquid) 1.05f else 0.35f)
-        s.setColorUniform("colA", ColorUtils.blendARGB(body, Color.WHITE, 0.08f))
-        s.setColorUniform("colB", ColorUtils.blendARGB(body, Color.BLACK, 0.18f))
+        // Flat stays one solid tone; Liquid gets a gentle top-to-bottom gradient.
+        val flat = look == BubbleLook.FLAT
+        s.setColorUniform("colA", if (flat) body else ColorUtils.blendARGB(body, Color.WHITE, 0.08f))
+        s.setColorUniform("colB", if (flat) body else ColorUtils.blendARGB(body, Color.BLACK, 0.18f))
         s.setColorUniform("colT", if (targetHot) errorColor else targetIdle)
         s.setFloatUniform("alpha", bodyAlpha)
         s.setFloatUniform("density", density)
@@ -239,7 +246,7 @@ open class LiquidBubbleView(context: Context) : View(context) {
         val tx = targetX - originX
         val ty = targetY - originY
         // The liquid shader draws the target itself so it can melt with the bubble.
-        if (look != BubbleLook.LIQUID || shader == null) {
+        if (!usesShader) {
             fill.color = if (targetHot) errorColor else targetIdle
             fill.alpha = (230 * targetAmount).toInt()
             canvas.drawCircle(tx, ty, targetRadius * targetAmount * if (targetHot) 1.15f else 1f, fill)
@@ -249,11 +256,11 @@ open class LiquidBubbleView(context: Context) : View(context) {
         close.alpha = (255 * targetAmount).toInt()
         close.setBounds((tx - tr).toInt(), (ty - tr).toInt(), (tx + tr).toInt(), (ty + tr).toInt())
         // Drawn again after the body so it sits on top of the liquid target.
-        if (look != BubbleLook.LIQUID || shader == null) close.draw(canvas)
+        if (!usesShader) close.draw(canvas)
     }
 
     private fun drawContent(canvas: Canvas, bx: Float, by: Float, r: Float, on: Int) {
-        if (look == BubbleLook.LIQUID && shader != null && targetAmount > 0.01f) close.draw(canvas)
+        if (usesShader && targetAmount > 0.01f) close.draw(canvas)
         val alpha = (255 * bodyAlpha.coerceAtLeast(0.6f)).toInt()
         when (mode) {
             BubbleMode.LISTENING -> when (listenAnim) {
