@@ -91,6 +91,8 @@ open class LiquidBubbleView(context: Context) : View(context) {
     private var shader: Any? = if (Build.VERSION.SDK_INT >= 33) {
         runCatching { RuntimeShader(SHADER) }.onFailure { Log.e(TAG, "shader failed", it) }.getOrNull()
     } else null
+    /** Consecutive failed shader frames; only a persistent failure disables the shader. */
+    private var shaderFailures = 0
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
@@ -178,9 +180,17 @@ open class LiquidBubbleView(context: Context) : View(context) {
             canvas.drawCircle(bx, by, r * (1.18f + 0.55f * level), fill)
         }
 
-        val liquidOk = usesShader &&
+        // Runtime shaders only work on the GPU; a software-drawn frame (screenshots, some system
+        // snapshots) just gets the flat disc. A failed frame falls back for that frame only, so
+        // one hiccup can't switch metaballs off for good.
+        val liquidOk = usesShader && canvas.isHardwareAccelerated &&
             runCatching { drawLiquid(canvas, bx, by, r, body) }
-                .onFailure { Log.e(TAG, "shader draw failed", it); shader = null; paint.shader = null }
+                .onSuccess { shaderFailures = 0 }
+                .onFailure { e ->
+                    paint.shader = null
+                    if (++shaderFailures == 1 || shaderFailures % 120 == 0) Log.e(TAG, "shader draw failed ($shaderFailures)", e)
+                    if (shaderFailures >= MAX_SHADER_FAILURES) shader = null
+                }
                 .isSuccess
         if (!liquidOk) drawFlat(canvas, bx, by, r, body)
         drawContent(canvas, bx, by, r, on)
@@ -372,6 +382,7 @@ open class LiquidBubbleView(context: Context) : View(context) {
 
         /** Bubble never gets drawn larger than this multiple of [radius]; used to size windows. */
         const val MAX_EXTENT = 1.8f
+        private const val MAX_SHADER_FAILURES = 600
 
         private val SHAPES = listOf(
             RoundedPolygon.star(9, innerRadius = 0.8f, rounding = CornerRounding(0.3f), innerRounding = CornerRounding(0.3f)),
